@@ -1,0 +1,84 @@
+/** @param {NS} ns **/
+export async function main(ns) {
+    let refreshRate = 50;
+
+    let fn = trampoline(ns, buyAndUpgrade, refreshRate);
+
+    await fn();
+}
+
+/** @param {NS} ns
+ *  @param {number} pause
+ */
+function trampoline(ns, fn, pause = 100) {
+    return async () => {
+        let res = await fn(ns);
+        while(typeof(res) === "function") {
+            res = await res(ns);
+            await ns.asleep(pause);
+        }
+    }
+}
+
+/** @param {NS} ns
+ */
+function buyAndUpgrade(ns) {
+    const maxCores = 16;
+    const maxLevel = 200;
+    const maxRam = 64;
+    const maxNodes = ns.hacknet.maxNumNodes();
+    let cash = ns.getPlayer().money;
+    let nodeCost = ns.hacknet.getPurchaseNodeCost();
+    
+    let nodeCount = ns.hacknet.numNodes();
+
+    if(cash > nodeCost && nodeCount < maxNodes) {
+        ns.hacknet.purchaseNode();
+        return buyAndUpgrade;
+    }
+
+    let nodes = [];
+    for(let i = 0; i < nodeCount; i++) nodes.push(ns.hacknet.getNodeStats(i));
+    
+    let canUpgradeLevel = nodes.filter(x => x.level < maxLevel);
+    let canUpgradeRam = nodes.filter(x => x.ram < maxRam);
+    let canUpgradeCores = nodes.filter(x => x.cores < maxCores);
+    
+    if(canUpgradeCores.length > 0) {
+        let n = canUpgradeCores.sort((a,b) => a.cores - b.cores)[0];
+        let cheapest = nodes.indexOf(n);
+        if(ns.hacknet.getCoreUpgradeCost(cheapest, 1) < cash) {
+            ns.print("upgrading cores of node " + cheapest);
+            ns.hacknet.upgradeCore(cheapest, 1);
+            return buyAndUpgrade;
+        }
+    }
+
+    if(canUpgradeRam.length > 0) {
+        let n = canUpgradeRam.sort((a,b) => a.ram - b.ram)[0];
+        let cheapest = nodes.indexOf(n);
+        if(ns.hacknet.getRamUpgradeCost(cheapest, 1) < cash) {
+            ns.print("upgrading ram of node " + cheapest);
+            ns.hacknet.upgradeRam(cheapest, 1);
+            return buyAndUpgrade;
+        }
+    }
+
+    if(canUpgradeLevel.length > 0) {
+        let n = canUpgradeLevel.sort((a,b) => a.level - b.level)[0];
+        let cheapest = nodes.indexOf(n);
+        let cost = ns.hacknet.getLevelUpgradeCost(cheapest, 5);
+        if(cost <= cash){
+            ns.print("upgrading level of node " + cheapest);
+            ns.hacknet.upgradeLevel(cheapest, 5);
+            return buyAndUpgrade;
+        }
+    }
+
+    if(nodeCount == maxNodes && canUpgradeLevel.length == 0 && canUpgradeRam == 0 && canUpgradeCores == 0) {
+        ns.tprint("hacknet is maxed.");
+        return;
+    }
+
+    return buyAndUpgrade;
+}
